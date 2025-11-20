@@ -1,9 +1,10 @@
+streamlit
 numpy
 pandas
-scikit-learn
-sgp4
-plotly
-streamlit
-joblib
 requests
-xgboost==1.7.6
+joblib
+plotly
+scikit-learn
+xgboost
+sgp4
+fpdf
