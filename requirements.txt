@@ -6,3 +6,4 @@ plotly
 streamlit
 joblib
 requests
+xgboost==1.7.6
