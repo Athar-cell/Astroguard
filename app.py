@@ -1,5 +1,5 @@
-# app.py — AstroGuard (Neon Space Hacker UI, single-file)
-# Save and run: streamlit run app.py
+# app.py — AstroGuard (Neon UI) with sidebar checkboxes + expanders
+# Save & run: streamlit run app.py
 
 import os, io, zipfile, time
 from pathlib import Path
@@ -36,7 +36,7 @@ except Exception:
     SGP4_AVAILABLE = False
 
 # ---------- config ----------
-st.set_page_config(page_title="AstroGuard — Neon", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AstroGuard — Panels", layout="wide", initial_sidebar_state="expanded")
 ROOT = Path.cwd()
 OUT_DIR = ROOT / "astroguard_outputs"
 MODELS_DIR = OUT_DIR / "models"
@@ -48,53 +48,26 @@ for d in [OUT_DIR, MODELS_DIR, VIS_DIR, REPORTS_DIR]:
 EARTH_RADIUS_KM = 6378.137
 np.random.seed(0)
 
-# Use your uploaded PPTX path (developer-provided)
+# Developer-provided PPTX path (local to this session) — used as download link
 PPTX_LOCAL_PATH = "/mnt/data/ASTROGUARD.pptx.pptx"
 PPTX_URL = f"file://{PPTX_LOCAL_PATH}"
 
-# ---------- inject neon CSS ----------
+# ---------- CSS / Neon styles ----------
 NEON_CSS = """
 <style>
-/* background gradient */
 body { background: radial-gradient(circle at 10% 10%, #050017 0%, #03031a 40%, #020210 100%); color: #dbe9ff; }
-
-/* glass card */
-.neon-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-  padding: 16px;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.03);
-}
-
-/* neon border for sidebar */
-.css-1d391kg { /* streamlit class for sidebar container can change by version - fallback ok */ }
+.neon-card { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 14px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.03); margin-bottom:12px; }
+.header-title { font-size:26px; font-weight:800; color: #00E5FF; letter-spacing:0.6px; }
+.header-sub { color:#9aa6b2; font-size:13px; margin-top:-6px; }
+.metric-card { background: rgba(255,255,255,0.02); padding: 10px; border-radius: 10px; border-left: 4px solid #00E5FF; margin-bottom:8px; }
+.streamlit-expanderHeader { font-weight:700; }
 .sidebar .stButton button { background: linear-gradient(90deg,#00e5ff,#9d4edd); color: #021; border: none; box-shadow: 0 8px 24px rgba(157,78,221,0.12); }
-
-/* header style */
-.header-title { font-size:28px; font-weight:800; color: #00E5FF; letter-spacing:0.6px; }
-.header-sub { color:#9aa6b2; font-size:13px; margin-top:-8px; }
-
-/* metric badges */
-.metric-card { background: rgba(255,255,255,0.02); padding: 10px; border-radius: 10px; border-left: 4px solid #00E5FF; }
-
-/* small button style */
-.streamlit-button-primary {
-  background: linear-gradient(90deg,#00E5FF,#9d4edd) !important;
-  border-radius: 8px !important;
-  color: #041018 !important;
-}
-
-/* hover effects */
-.neon-card:hover { transform: translateY(-4px); transition: 0.12s ease; }
-
-/* small footer */
-.footer { color:#5b6b7a; font-size:12px; margin-top:10px; }
+.footer { color:#5b6b7a; font-size:12px; margin-top:8px; }
 </style>
 """
 st.markdown(NEON_CSS, unsafe_allow_html=True)
 
-# ---------- helpers ----------
+# ---------- Helper functions (same robust logic as earlier) ----------
 def safe_get_tles(n=6, timeout=6):
     urls = [
         "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
@@ -119,10 +92,11 @@ def safe_get_tles(n=6, timeout=6):
     tles=[]
     for i in range(0, len(lines), 3):
         if i+2 < len(lines):
-            nme=lines[i].strip(); l1=lines[i+1].strip(); l2=lines[i+2].strip()
+            name = lines[i].strip(); l1 = lines[i+1].strip(); l2 = lines[i+2].strip()
             if l1.startswith("1 ") and l2.startswith("2 "):
-                tles.append({'name':nme,'line1':l1,'line2':l2})
-        if len(tles)>=n: break
+                tles.append({'name': name, 'line1': l1, 'line2': l2})
+        if len(tles) >= n:
+            break
     return tles
 
 def build_times(start=None, duration_s=1200, step_s=10):
@@ -137,7 +111,7 @@ def propagate_tle(line1, line2, times):
     coords=[]
     for t in times:
         jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute, t.second + t.microsecond*1e-6)
-        e, r, v = sat.sgp4(jd,fr)
+        e, r, v = sat.sgp4(jd, fr)
         if e!=0:
             coords.append([np.nan, np.nan, np.nan])
         else:
@@ -164,13 +138,12 @@ def generate_debris_field(times, n_debris=200, alt_choices=(500,700,900), spread
         alt = np.random.normal(loc=shell, scale=spread_km)
         a = EARTH_RADIUS_KM + max(160, alt)
         T = 2*np.pi * (a**1.5) / (mu**0.5)
-        mean_motion = 2*np.pi / max(T, 1.0)
         inc = np.random.uniform(0,98)
         rasc = np.random.uniform(0,360)
         phase0 = np.random.uniform(0, 2*np.pi)
         traj = circular_orbit_coords(a, incl_deg=inc, rasc_deg=rasc, n_steps=len(times), phase=phase0)
         traj += np.random.normal(0, 0.5, traj.shape)
-        debris.append({"name":f"DEB_{i:04d}","pos":traj})
+        debris.append({"name":f"DEB_{i:04d}", "pos":traj})
     return debris
 
 def detect_close_approaches(objects, times, threshold_km=30.0):
@@ -265,7 +238,7 @@ def train_models_safe(X,y,out_dir=MODELS_DIR):
     df_results.to_csv(out_dir / "model_results.csv", index=False)
     return df_results, trained, (X_train,X_test,y_train,y_test)
 
-# plotting helpers (neon)
+# plotting helpers
 def plot_3d_scene(objects, times, frame_idx=None, title="3D Orbit"):
     if frame_idx is None: frame_idx = min(len(times)-1, int(len(times)/2))
     u=np.linspace(0,2*np.pi,60); v=np.linspace(0,np.pi,30)
@@ -274,13 +247,13 @@ def plot_3d_scene(objects, times, frame_idx=None, title="3D Orbit"):
     zs = EARTH_RADIUS_KM * np.outer(np.ones_like(u), np.cos(v))
     fig = go.Figure()
     fig.add_trace(go.Surface(x=xs, y=ys, z=zs, colorscale=[[0,'#020018'],[1,'#071236']], opacity=0.93, showscale=False))
-    colors = px.colors.sequential.Aggrnyl + px.colors.qualitative.Dark24
+    colors = px.colors.qualitative.Dark24 + px.colors.sequential.Aggrnyl
     for i,o in enumerate(objects):
         traj = o["pos"][:frame_idx+1]
         if np.isnan(traj).all(): continue
         fig.add_trace(go.Scatter3d(x=traj[:,0], y=traj[:,1], z=traj[:,2], mode="lines", line=dict(color=colors[i%len(colors)], width=2), name=o["name"]))
         p = traj[-1]; fig.add_trace(go.Scatter3d(x=[p[0]], y=[p[1]], z=[p[2]], mode="markers", marker=dict(size=4, color=colors[i%len(colors)]), showlegend=False))
-    fig.update_layout(template="plotly_dark", title=title, scene=dict(aspectmode="data"), height=700)
+    fig.update_layout(template="plotly_dark", title=title, scene=dict(aspectmode="data"), height=640)
     return fig
 
 def plot_metric_bars(df_results):
@@ -288,164 +261,183 @@ def plot_metric_bars(df_results):
     fig_f1 = px.bar(df_results, x="Model", y="F1", color="Model", template="plotly_dark", title="F1 Score")
     return fig_acc, fig_f1
 
-# ---------- UI layout ----------
-st.markdown("<div style='display:flex;align-items:center;gap:12px'>"
-            "<img src='https://img.icons8.com/color/96/satellite.png' width=48/>"
-            "<div><div class='header-title'>AstroGuard</div><div class='header-sub'>Neon Orbit Simulation · Collision Risk · ML</div></div>"
-            "</div>", unsafe_allow_html=True)
+# ---------- Sidebar: checkboxes to enable panels ----------
+st.sidebar.markdown("<div class='neon-card'><b>AstroGuard Panels</b></div>", unsafe_allow_html=True)
+show_sim = st.sidebar.checkbox("🔭 Simulation Panel", value=True)
+show_train = st.sidebar.checkbox("⚙ Training Panel", value=False)
+show_viz = st.sidebar.checkbox("📊 Visualizations Panel", value=True)
+show_download = st.sidebar.checkbox("📁 Downloads Panel", value=False)
 
-# left neon sidebar (Streamlit handles sidebar; we apply styling)
-st.sidebar.markdown("<div class='neon-card'><b>AstroGuard Controls</b></div>", unsafe_allow_html=True)
-st.sidebar.markdown("### Simulation settings")
-
-col1 = st.sidebar.columns([1,2])
-duration_s = st.sidebar.slider("Duration (s)", 600, 3600, 1200, step=200)
-step_s = st.sidebar.slider("Timestep (s)", 4, 20, 8, step=2)
-n_debris = st.sidebar.slider("Debris count", 50, 800, 200, step=50)
-tles_count = st.sidebar.slider("TLEs to load", 0, 12, 6, step=1)
-threshold_km = st.sidebar.slider("Close-approach threshold (km)", 5.0, 200.0, 30.0, step=5.0)
-min_train = st.sidebar.number_input("Min dataset size for training", min_value=50, max_value=2000, value=300, step=50)
+# Panel-specific settings inside sidebar (only visible when corresponding checkbox is True)
 st.sidebar.markdown("---")
+if show_sim:
+    st.sidebar.markdown("**Simulation settings**")
+    duration_s = st.sidebar.slider("Duration (s)", 600, 3600, 1200, step=200, key="dur")
+    step_s = st.sidebar.slider("Timestep (s)", 4, 20, 8, step=2, key="step")
+    n_debris = st.sidebar.slider("Debris count", 50, 800, 200, step=50, key="debris")
+    tles_count = st.sidebar.slider("TLEs to load", 0, 12, 6, step=1, key="tles")
+    threshold_km = st.sidebar.slider("Threshold km", 5.0, 200.0, 30.0, step=5.0, key="thres")
+else:
+    # default values (when panel not shown)
+    duration_s = st.sidebar.number_input("Duration (s)", value=1200, key="dur_hidden", disabled=True)
+    step_s = 8; n_debris = 200; tles_count = 6; threshold_km = 30.0
 
-run_sim = st.sidebar.button("▶ Run Simulation", key="run_sim")
-train_btn = st.sidebar.button("⚙ Train Models (7)", key="train")
-save_html = st.sidebar.button("💾 Save 3D HTML", key="save_html")
-export_zip = st.sidebar.button("📦 Package & Download ZIP", key="zip")
+if show_train:
+    st.sidebar.markdown("**Training settings**")
+    min_train = st.sidebar.number_input("Min dataset size", min_value=50, max_value=2000, value=300, step=50, key="mintrain")
+else:
+    min_train = 300
+
 st.sidebar.markdown("---")
-st.sidebar.markdown("**Uploads & files**")
 if Path(PPTX_LOCAL_PATH).exists():
-    st.sidebar.markdown(f"PPTX: [Open PPTX]({PPTX_URL})")
+    st.sidebar.markdown(f"Uploaded PPTX: [Open PPTX]({PPTX_URL})")
 else:
     st.sidebar.markdown("_PPTX not found in session path_")
-st.sidebar.markdown("<div class='footer'>AstroGuard • built for hackathons</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div class='footer'>AstroGuard • Select panels, then open sections</div>", unsafe_allow_html=True)
 
 # session state
 if "sim" not in st.session_state: st.session_state["sim"] = None
 if "df_results" not in st.session_state: st.session_state["df_results"] = None
 if "trained" not in st.session_state: st.session_state["trained"] = None
 
-# main content cards
-left, right = st.columns([3,1])
-with left:
-    st.markdown("<div class='neon-card'>"
-                "<h3 style='margin:0;color:#00E5FF'>Simulation & Visuals</h3>"
-                "<p style='margin:0;color:#9aa6b2'>Run or load simulation, preview 3D or export HTML.</p>"
-                "</div>", unsafe_allow_html=True)
-with right:
-    st.markdown("<div class='metric-card'>"
-                "<b>Environment</b><br>"
-                f"XGBoost: {'Available' if XGBOOST_AVAILABLE else 'Fallback in use'}<br>"
-                f"SGP4: {'Available' if SGP4_AVAILABLE else 'Fallback to synthetic orbits'}"
-                "</div>", unsafe_allow_html=True)
+# header
+st.markdown("<div style='display:flex;align-items:center;gap:12px'>"
+            "<img src='https://img.icons8.com/color/96/satellite.png' width=48/>"
+            "<div><div class='header-title'>AstroGuard</div><div class='header-sub'>Neon UI — select panels to view</div></div>"
+            "</div>", unsafe_allow_html=True)
 
-# run simulation
-if run_sim:
-    with st.spinner("Running simulation..."):
-        times = build_times(duration_s=duration_s, step_s=step_s)
-        objects=[]
-        if tles_count > 0:
-            tles = safe_get_tles(n=tles_count)
-            for idx,t in enumerate(tles):
-                pos = propagate_tle(t["line1"], t["line2"], times)
-                if np.isnan(pos).all():
-                    traj = circular_orbit_coords(7000 + idx*200, incl_deg=idx*10, n_steps=len(times), phase=np.random.uniform(0,2*np.pi))
-                    objects.append({"name":t["name"], "pos":traj})
-                else:
-                    objects.append({"name":t["name"], "pos":pos})
-        # debris
-        debris = generate_debris_field(times, n_debris=n_debris)
-        objects = objects + debris
-        events = detect_close_approaches(objects, times, threshold_km=threshold_km)
-        st.session_state["sim"] = {"times":times, "objects":objects, "events":events}
-        st.success(f"Simulation complete — {len(events)} events detected.")
+# MAIN: show only selected panels; each panel is an expander (arrow)
+# Simulation Panel
+if show_sim:
+    with st.expander("🔭 Simulation Panel — run sim & preview", expanded=True):
+        col1, col2 = st.columns([3,1])
+        with col2:
+            st.markdown("<div class='metric-card'><b>Sim Controls</b><br>"
+                        f"Duration: {duration_s}s<br>Step: {step_s}s<br>Debris: {n_debris}<br>Threshold: {threshold_km} km</div>", unsafe_allow_html=True)
+            if st.button("▶ Run Simulation", key="run_sim_main"):
+                with st.spinner("Running simulation..."):
+                    times = build_times(duration_s=duration_s, step_s=step_s)
+                    objects = []
+                    if tles_count > 0:
+                        tles = safe_get_tles(n=tles_count)
+                        for idx,t in enumerate(tles):
+                            pos = propagate_tle(t["line1"], t["line2"], times)
+                            if np.isnan(pos).all():
+                                traj = circular_orbit_coords(7000 + idx*200, incl_deg=idx*10, n_steps=len(times), phase=np.random.uniform(0,2*np.pi))
+                                objects.append({"name":t["name"], "pos":traj})
+                            else:
+                                objects.append({"name":t["name"], "pos":pos})
+                    debris = generate_debris_field(times, n_debris=n_debris)
+                    objects = objects + debris
+                    events = detect_close_approaches(objects, times, threshold_km=threshold_km)
+                    st.session_state["sim"] = {"times":times, "objects":objects, "events":events}
+                    st.success(f"Simulation complete — {len(events)} events detected.")
+        with col1:
+            if st.session_state["sim"] is not None:
+                sim = st.session_state["sim"]
+                st.markdown("**Simulation summary**")
+                st.write(f"Objects: {len(sim['objects'])} • Timesteps: {len(sim['times'])} • Events: {len(sim['events'])}")
+                if len(sim["events"])>0:
+                    st.dataframe(pd.DataFrame(sim["events"][:20]))
+                st.markdown("**3D preview**")
+                frame_idx = st.slider("Preview frame index", 0, max(0,len(sim["times"])-1), min(10, max(0,len(sim["times"])-1)), key="frame_sim")
+                fig3d = plot_3d_scene(sim["objects"], sim["times"], frame_idx=frame_idx, title="Orbit Preview")
+                st.plotly_chart(fig3d, use_container_width=True)
+            else:
+                st.info("No simulation ran yet. Press ▶ Run Simulation in the panel.")
 
-# show simulation preview & info
-if st.session_state["sim"] is not None:
-    sim = st.session_state["sim"]
-    st.markdown("### Simulation Summary")
-    st.write(f"Objects: {len(sim['objects'])} • Timesteps: {len(sim['times'])} • Events: {len(sim['events'])}")
-    if len(sim["events"]) > 0:
-        st.markdown("Sample events:")
-        st.dataframe(pd.DataFrame(sim["events"][:20]))
-    st.markdown("### 3D Orbit Preview")
-    frame_idx = st.slider("Preview frame index", 0, max(0,len(sim["times"])-1), min(10, max(0,len(sim["times"])-1)))
-    fig3d = plot_3d_scene(sim["objects"], sim["times"], frame_idx=frame_idx, title="AstroGuard — Orbit Preview")
-    st.plotly_chart(fig3d, use_container_width=True)
-    if save_html:
-        fn = VIS_DIR / f"orbit_{int(time.time())}.html"
-        fig3d.write_html(str(fn), include_plotlyjs="cdn")
-        st.success(f"Saved {fn.name}")
-        with open(fn, "rb") as fh:
-            st.download_button("⬇ Download 3D HTML", fh, file_name=fn.name, mime="text/html")
+# Training Panel
+if show_train:
+    with st.expander("⚙ Training Panel — build dataset & train models", expanded=False):
+        if st.button("⚙ Train Models (7)", key="train_main"):
+            if st.session_state["sim"] is None:
+                st.error("Run simulation first (enable Simulation panel).")
+            else:
+                with st.spinner("Preparing dataset & training..."):
+                    events = st.session_state["sim"]["events"]
+                    X=[]; y=[]
+                    for e in events:
+                        X.append([e["dist_km"], e["rel_speed_km_s"], abs(e["tca_s"])])
+                        y.append(1 if e["dist_km"] < 5.0 else 0)
+                    X=np.array(X); y=np.array(y)
+                    X,y = ensure_dataset(X,y,min_samples=min_train)
+                    df_results, trained, splits = train_models_safe(X,y, out_dir=MODELS_DIR)
+                    st.session_state["df_results"] = df_results
+                    st.session_state["trained"] = trained
+                    st.success("Training finished. Models saved.")
+        # display training results if present
+        if st.session_state.get("df_results") is not None:
+            st.markdown("**Latest training results**")
+            st.write(st.session_state["df_results"])
 
-# train models
-if train_btn:
-    if st.session_state["sim"] is None:
-        st.error("Run simulation first.")
-    else:
-        with st.spinner("Preparing dataset & training..."):
-            events = st.session_state["sim"]["events"]
-            X=[]; y=[]
-            for e in events:
-                X.append([e["dist_km"], e["rel_speed_km_s"], abs(e["tca_s"])])
-                y.append(1 if e["dist_km"] < 5.0 else 0)
-            X=np.array(X); y=np.array(y)
-            X,y = ensure_dataset(X,y,min_samples=min_train)
-            df_results, trained, splits = train_models_safe(X,y, out_dir=MODELS_DIR)
-            st.session_state["df_results"] = df_results
-            st.session_state["trained"] = trained
-            st.success("Training finished. Models saved.")
+# Visualizations Panel
+if show_viz:
+    with st.expander("📊 Visualizations Panel — charts & model metrics", expanded=False):
+        if st.session_state.get("sim") is None:
+            st.info("Run Simulation first, then come here to explore visuals.")
+        else:
+            sim = st.session_state["sim"]
+            st.markdown("**Orbit 3D snapshot**")
+            frame_idx = st.slider("Viz frame index", 0, max(0,len(sim["times"])-1), min(10, max(0,len(sim["times"])-1)), key="frame_viz")
+            fig3d = plot_3d_scene(sim["objects"], sim["times"], frame_idx=frame_idx, title="Orbit Visualization")
+            st.plotly_chart(fig3d, use_container_width=True)
+            if st.button("Save orbit HTML", key="save_html_viz"):
+                fn = VIS_DIR / f"orbit_{int(time.time())}.html"
+                fig3d.write_html(str(fn), include_plotlyjs="cdn")
+                st.success(f"Saved {fn.name}")
+                with open(fn,"rb") as fh: st.download_button("⬇ Download orbit HTML", fh, file_name=fn.name, mime="text/html")
 
-# show metrics
-if st.session_state["df_results"] is not None:
-    df_results = st.session_state["df_results"]
-    st.markdown("### Model Performance (Neon)")
-    acc_fig, f1_fig = plot_metric_bars(df_results)
-    c1,c2=st.columns(2)
-    with c1:
-        st.plotly_chart(acc_fig, use_container_width=True)
-        acc_file = VIS_DIR / "model_accuracy.html"; acc_fig.write_html(str(acc_file), include_plotlyjs="cdn")
-        with open(acc_file,"rb") as fh: st.download_button("⬇ Download Accuracy HTML", fh, file_name=acc_file.name, mime="text/html")
-    with c2:
-        st.plotly_chart(f1_fig, use_container_width=True)
-        f1_file = VIS_DIR / "model_f1.html"; f1_fig.write_html(str(f1_file), include_plotlyjs="cdn")
-        with open(f1_file,"rb") as fh: st.download_button("⬇ Download F1 HTML", fh, file_name=f1_file.name, mime="text/html")
-    # confusion matrices
-    st.markdown("#### Confusion Matrices (Top 3)")
-    trained = st.session_state["trained"]
-    top = df_results["Model"].tolist()[:3]
-    X_train,X_test,y_train,y_test = splits
-    for m in top:
-        try:
-            model = trained[m]
-            y_pred = model.predict(X_test)
-            cm = confusion_matrix(y_test, y_pred)
-            fig_cm = go.Figure(data=go.Heatmap(z=cm, x=["Pred 0","Pred 1"], y=["Act 0","Act 1"], colorscale="Plasma"))
-            fig_cm.update_layout(title=f"CM - {m}", template="plotly_dark", height=360)
-            st.plotly_chart(fig_cm, use_container_width=True)
-            cm_file = VIS_DIR / f"cm_{m}.html"; fig_cm.write_html(str(cm_file), include_plotlyjs="cdn")
-            with open(cm_file,"rb") as fh: st.download_button(f"⬇ Download CM - {m}", fh, file_name=cm_file.name, mime="text/html")
-        except Exception as e:
-            st.warning(f"Could not plot CM for {m}: {e}")
+        if st.session_state.get("df_results") is not None:
+            df = st.session_state["df_results"]
+            st.markdown("**Model performance**")
+            acc_fig, f1_fig = plot_metric_bars(df)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.plotly_chart(acc_fig, use_container_width=True)
+            with c2:
+                st.plotly_chart(f1_fig, use_container_width=True)
 
-# export ZIP
-if export_zip:
-    with st.spinner("Packaging outputs..."):
-        zipname = ROOT / "AstroGuard_Submission.zip"
-        with zipfile.ZipFile(zipname, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root,_,files in os.walk(OUT_DIR):
-                for fname in files:
-                    full = os.path.join(root, fname)
-                    arc = os.path.relpath(full, OUT_DIR)
-                    zf.write(full, arc)
-            # include PPTX if exists
-            if Path(PPTX_LOCAL_PATH).exists():
-                zf.write(PPTX_LOCAL_PATH, os.path.join("ppt", os.path.basename(PPTX_LOCAL_PATH)))
-        st.success(f"Packaged: {zipname.name}")
-        with open(zipname, "rb") as fh: st.download_button("⬇ Download Submission ZIP", fh, file_name=zipname.name, mime="application/zip")
+# Downloads Panel
+if show_download:
+    with st.expander("📁 Downloads Panel — package & export", expanded=False):
+        st.markdown("**Exports**")
+        if st.button("📦 Package outputs & download ZIP", key="zip_main"):
+            zipname = ROOT / "AstroGuard_Submission.zip"
+            with zipfile.ZipFile(zipname, "w", zipfile.ZIP_DEFLATED) as zf:
+                for folder in [MODELS_DIR, VIS_DIR, REPORTS_DIR]:
+                    for root,_,files in os.walk(folder):
+                        for fname in files:
+                            fp = os.path.join(root, fname)
+                            arc = os.path.relpath(fp, OUT_DIR)
+                            zf.write(fp, arc)
+                if Path(PPTX_LOCAL_PATH).exists():
+                    zf.write(PPTX_LOCAL_PATH, os.path.join("ppt", os.path.basename(PPTX_LOCAL_PATH)))
+            st.success(f"Packaged to {zipname.name}")
+            with open(zipname,"rb") as fh:
+                st.download_button("⬇ Download ZIP", fh, file_name=zipname.name, mime="application/zip")
+        st.markdown("---")
+        st.markdown("**Direct files**")
+        # list models
+        if MODELS_DIR.exists():
+            models_list = list(MODELS_DIR.glob("*.pkl"))
+            if models_list:
+                for m in models_list:
+                    with open(m,"rb") as fh:
+                        st.download_button(f"⬇ {m.name}", fh, file_name=m.name, mime="application/octet-stream")
+        # PPTX
+        if Path(PPTX_LOCAL_PATH).exists():
+            st.markdown("Download uploaded PPTX")
+            with open(PPTX_LOCAL_PATH, "rb") as fh:
+                st.download_button("⬇ Download PPTX", fh, file_name=os.path.basename(PPTX_LOCAL_PATH), mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+        else:
+            st.info("No PPTX available in session path.")
 
-# final footer
+# footer
 st.markdown("---")
-st.markdown("AstroGuard • Neon UI • Built for hackathons — run sim → train → export.")
+st.markdown("<div style='display:flex;justify-content:space-between;align-items:center'>"
+            "<div style='color:#9aa6b2'>AstroGuard • Neon Panels UI</div>"
+            "<div style='color:#5b6b7a;font-size:12px'>Tip: enable panels on the left to reveal sections here</div>"
+            "</div>", unsafe_allow_html=True)
+
 if not XGBOOST_AVAILABLE:
-    st.warning("XGBoost not available in this environment. App uses fallback RandomForest for XGBoost slot.")
+    st.warning("XGBoost not available in this environment. App uses fallback RandomForest for that slot.")
