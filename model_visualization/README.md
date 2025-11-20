@@ -18,66 +18,77 @@ A binary label is used:
 🧠 Models Included
 ✔ model_LogReg.pkl
 
-Logistic Regression baseline — interpretable & lightweight.
+Logistic Regression baseline — interpretable & lightweight.🌌 AstroGuard — Visualizations
 
-✔ model_SVM.pkl
+This folder contains all interactive 3D orbit scenes, model performance charts, and confusion matrices produced by the AstroGuard dashboard.
 
-Support Vector Machine (RBF kernel) — good for non-linear boundaries.
+All files are exported as HTML so they can be opened in any browser.
 
-✔ model_KNN.pkl
+🛰 Orbit & Debris Visuals
+✔ orbit_*.html
 
-K-Nearest Neighbors — simple distance-based classifier.
+3D orbits of satellites + debris generated using Plotly.
+Features include:
 
-✔ model_RandomForest.pkl
+fully interactive 3D view
 
-Random Forest — strong performance & robust on synthetic + real data.
+zoom / rotate / drag
 
-✔ model_GradBoost.pkl
+Earth visualization
 
-Gradient Boosting — good at handling subtle patterns.
+debris trails
 
-✔ model_NeuralNet.pkl
+real or synthetic orbital paths
 
-Multi-Layer Perceptron (128-64) — simple neural network classifier.
+Used in the "Simulation" and "Visualizations" panels of the Streamlit app.
 
-✔ model_XGBoost.pkl
+📊 Model Performance Charts
+✔ model_accuracy.html
 
-XGBoost model (if available) — top performance for most datasets.
-If XGBoost wasn’t available in the environment, a RandomForest fallback was used.
+Bar chart comparing accuracy of all 7 models.
 
-✔ model_Voting.pkl
+✔ model_f1.html
 
-Soft Voting Ensemble that combines all probability-based models.
+F1 score comparison — best for imbalanced risk datasets.
 
-✔ astroguard_scaler.pkl
+These help understand which ML model performs best for collision prediction.
 
-StandardScaler for normalizing input features before predictions.
+🔥 Confusion Matrices
 
-🚀 How to Use a Model
-import joblib
-import numpy as np
+Files like:
 
-model = joblib.load("models/model_RandomForest.pkl")
-scaler = joblib.load("models/astroguard_scaler.pkl")
+cm_LogReg.html  
+cm_SVM.html  
+cm_RandomForest.html  
+cm_XGBoost.html  
+cm_Voting.html  
 
-# input sample: [distance_km, relative_speed_km_per_s, tca_seconds]
-X = np.array([[12.4, 1.32, 45.0]])
 
-X_scaled = scaler.transform(X)
-pred = model.predict(X_scaled)
-proba = model.predict_proba(X_scaled)
+Each file shows:
 
-print("Prediction:", pred[0])
-print("Collision probability:", proba[0][1])
+true positives
 
-📄 Notes
+true negatives
 
-All models are trained from the AstroGuard simulation engine (TLE or synthetic).
+false positives
 
-All .pkl files are compatible with Python 3.8+.
+false negatives
 
-Some models may be missing if training didn’t complete or if XGBoost was not available.
+Used for analyzing model behavior on close-approach events.
 
-📬 Contact
+🎨 How to open
 
-If you need help loading the models or retraining them, message Athar Sharma.
+Just double-click any .html file or drag it into a browser:
+
+visualizations/model_accuracy.html
+visualizations/orbit_3d.html
+visualizations/cm_SVM.html
+
+🧪 Notes
+
+All visuals are exported using Plotly with neon dark-mode themes.
+
+These are automatically generated from the Streamlit app.
+
+They are safe to open — no code execution, only JavaScript for visualizations
+
